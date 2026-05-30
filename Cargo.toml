@@ -1,0 +1,10 @@
+[package]
+name = "ai-pasture"
+version = "0.1.0"
+edition = "2021"
+description = "Farming and agriculture simulation layer for the Lau game"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
