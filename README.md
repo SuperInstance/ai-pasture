@@ -1,83 +1,80 @@
-# ai-pasture
+# AI Pasture
 
-Farming and agriculture simulation layer for the Lau game
+**AI Pasture** is a Rust farming and agriculture simulation library implementing a NPK (nitrogen-phosphorus-potassium) soil model, crop growth dynamics, livestock management, and weather-driven ecosystem simulation for the Lau game universe.
 
-## Overview
+## Why It Matters
 
-Part of the [Flux→PTX](https://github.com/SuperInstance/cuda-oxide/blob/main/FLUX_TO_PTX.md) experimental suite — building a distributed GPU runtime on five layers:
+Agricultural simulations require accurate biogeochemical modeling to produce believable game worlds. The NPK nutrient cycle, pH-dependent nutrient availability, and water-stress crop responses are well-documented in agronomy literature. This library encodes those models into a tick-based simulation where soil fertility is a weighted function of NPK balance, pH proximity to 6.75, moisture adequacy, and organic matter content. Crops consume nutrients proportional to species-specific needs, livestock convert silo grain into secondary products (eggs, milk, wool, manure), and legumes fix atmospheric nitrogen — all grounded in real agricultural science. This creates gameplay where sustainable farming practices (composting, crop rotation with legumes, water management) emerge as optimal strategies rather than being scripted.
 
-## Architecture
+## How It Works
 
-This crate sits within the **five-layer Oxide Stack**:
+**Soil fertility** is a weighted average across four factors:
 
-| Layer | Crate | Role |
-|-------|-------|------|
-| 1 | open-parallel | Async runtime (tokio fork) |
-| 2 | pincher | "Vector DB as runtime, LLM as compiler" |
-| 3 | flux-core | Bytecode VM + A2A agent protocol |
-| 4 | cuda-oxide | Flux→MIR→Pliron→NVVM→PTX compiler |
-| 5 | cudaclaw | Persistent GPU kernels, warp consensus, SmartCRDT |
-
-The key insight: **ternary values {-1, 0, +1} map directly to GPU compute**. They pack 16× denser than FP32, enable XNOR+popcount matmul, and conservation laws become compile-time checks.
-
-## Stats
-
-| Metric | Value |
-|--------|-------|
-| Tests | 45 |
-| Lines of Code | 955 |
-| Public API Surface | 35 items |
-| License | MIT |
-
-## Installation
-
-```toml
-[dependencies]
-ai-pasture = "0.1.0"
+```
+fertility = 0.35 × NPK_avg + 0.15 × pH_score + 0.25 × moisture_score + 0.25 × OM_score
 ```
 
-## Usage
+Where pH_score peaks at 6.75 with linear falloff, and moisture_score follows a trapezoidal function (ideal: 20–80%). This matches real soil science: NPK is the dominant factor, pH controls nutrient bioavailability, and organic matter improves both water retention and slow-release nutrients.
+
+**Crop growth** per tick:
+
+```
+Δgrowth = (1/growth_time) × (0.4 × fertility + 0.3 × water_factor + 0.3 × sunlight)
+```
+
+Where `water_factor = min(1.0, soil_moisture / crop_water_need)`. Stress from drought or poor soil degrades health: `Δhealth = −0.01 × stress_factor`. At health = 0, the crop dies and adds organic matter to the soil.
+
+**Nitrogen fixation:** Bean and lavender crops add +0.15 N per tick to soil, modeling Rhizobium symbiosis. This makes legumes valuable for crop rotation — a real farming strategy that the simulation rewards organically.
+
+**Conservation error:** The farm computes a conservation deviation:
+
+```
+error = (soil_deviation + water_deviation + silo_deviation) / 3
+```
+
+This measures how far the farm is from sustainable equilibrium, directly connecting to the γ + η = C conservation framework.
+
+## Quick Start
 
 ```rust
-use ai_pasture::*;
-// See src/lib.rs tests for complete working examples
+fn main() {
+    let mut farm = Farm::new(4);
+    farm.plant(CropType::Wheat);
+    farm.livestock.push(Animal::Chicken);
+
+    for _ in 0..300 {
+        farm.tick(&Weather::ideal());
+    }
+
+    let harvested = farm.harvest_mature();
+    println!("Harvested {} units", harvested);
+    println!("Soil health: {:.1}", farm.soil_health());
+}
 ```
 
-### Key Types
+## API
 
-```
-- pub struct Soil {
-    pub fn new() -> Self {
-    pub fn fertility(&self) -> f64 {
-    pub fn deplete(&mut self, amounts: &Soil) {
-    pub fn replenish(&mut self, amounts: &Soil) {
-    pub fn tick(&mut self) {
-- pub enum CropType {
-    pub fn nutrient_need(&self) -> Soil {
-    pub fn growth_time(&self) -> u64 {
-    pub fn yield_amount(&self) -> u32 {
-```
+| Type | Description |
+|------|-------------|
+| `Soil` | NPK, moisture, pH, organic matter with fertility scoring |
+| `CropType` | 10 crop species with per-species nutrient needs |
+| `Crop` | Growth stage (0.0–1.0) and health tracking |
+| `FarmPlot` | Soil + optional crop with tick simulation |
+| `Animal` | 6 species with products and feed costs |
+| `FarmProduct` | Egg, Milk, Wool, Honey, Manure |
+| `Weather` | Rainfall, sunlight, temperature |
+| `Farm` | Top-level: plots, livestock, silo, water, compost |
 
-## Design Philosophy
+## Architecture Notes
 
-This crate uses **ternary algebra** (Z₃) where every value is {-1, 0, +1}:
+AI Pasture models the **ecological substrate** of the Lau game world. Within γ + η = C, the farm's conservation error function directly instantiates the conservation law: sustainable farms (low error) represent γ + η equilibrium, while degraded farms (high error) represent conservation violations. The species coexistence dynamics mirror Law 3 (100% ecological resilience).
 
-- **+1** → positive signal (healthy, allocated, converged, ready)
-- **0** → neutral (pending, balanced, monitoring, degraded)
-- **-1** → negative signal (failed, free, diverged, overloaded)
+See [ARCHITECTURE.md](https://github.com/SuperInstance/SuperInstance/blob/main/ARCHITECTURE.md).
 
-This isn't arbitrary — ternary is the natural encoding for:
-1. **BitNet b1.58** (Microsoft) — ternary neural networks at 60% less power
-2. **GPU warp voting** — hardware ballot instructions return ternary consensus
-3. **Conservation laws** — {-1, 0, +1} preserves quantity (what goes in must come out)
+## References
 
-## Testing
-
-```bash
-git clone https://github.com/SuperInstance/ai-pasture.git
-cd ai-pasture
-cargo test
-```
+1. Brady, N.C. & Weil, R.R. (2008). *The Nature and Properties of Soils*. 14th ed. Pearson.
+2. Hoogenboom, G. et al. (2004). "Decision Support System for Agrotechnology Transfer." *DSSAT v4*.
 
 ## License
 
